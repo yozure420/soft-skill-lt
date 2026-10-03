@@ -124,6 +124,17 @@ html[data-theme="oz"] .lab.core.tri { text-shadow: none; filter: drop-shadow(0 0
 .toast.on { opacity: 1; }
 /* 閲覧者用画面：操作ボタン・カンペ・ファイル名とマイクの表示を出さない */
 .viewer .bar, .viewer .notes, .viewer .hud { display: none !important; }
+/* 発表者ツール（?view=presenter）：閲覧者画面の小さいプレビュー */
+#viewerBtn { display: none; }
+.ptool #viewerBtn { display: inline-block; }
+.pip {
+  position: fixed; top: calc(env(safe-area-inset-top, 0px) + 14px); right: 14px; width: 320px; height: 180px; z-index: 7;
+  border-radius: 10px; overflow: hidden; border: 1px solid rgba(239,227,200,.28); box-shadow: 0 6px 24px rgba(0,0,0,.45);
+  background: var(--night, #05070d); pointer-events: none;
+}
+.pip iframe { width: 800px; height: 450px; border: 0; transform: scale(.4); transform-origin: 0 0; }
+.pip-lab { position: absolute; left: 8px; top: 5px; font-size: 11px; color: var(--dim); }
+.pip.off { display: none; }
 
 /* kanpe */
 .notes {
@@ -234,6 +245,7 @@ html[data-theme="oz"] .cfg-foot button:hover { background: rgba(60,50,120,.14); 
   <button id="themeBtn" title="Y：テーマ切り替え">テーマ</button>
   <button id="notesBtn" aria-pressed="false" title="N">カンペ</button>
   <button id="fsBtn" title="F">全画面</button>
+  <button id="viewerBtn" title="閲覧者画面を別ウィンドウで開く（プロジェクター側へ移して F で全画面）">閲覧者画面を開く</button>
 </nav>
 <section class="cfg" id="cfg" role="dialog" aria-label="次へ進む言葉の設定">
   <div class="cfg-box">
@@ -241,7 +253,7 @@ html[data-theme="oz"] .cfg-foot button:hover { background: rgba(60,50,120,.14); 
       <button id="vmPresenter" aria-pressed="true">発表者用</button>
       <button id="vmViewer" aria-pressed="false">閲覧者用</button>
     </div>
-    <p class="hint">閲覧者用はスライドだけを表示します（ボタン・カンペ・タイマーは出ません。←→ / スペースでめくれます）。閲覧者用でこの設定を開くには、S キーを2秒以内に5回押します。</p>
+    <p class="hint">閲覧者用はスライドだけを表示します（ボタン・カンペ・タイマーは出ません。←→ / スペースでめくれます）。閲覧者用でこの設定を開くには、S キーを2秒以内に5回押します。2画面で発表するときは <a href="?view=presenter" style="color: var(--bl)">発表者ツール</a> で開き、「閲覧者画面を開く」を押します。</p>
     <h2>次へ進む言葉</h2>
     <label class="tlim">持ち時間 <input id="tLimit" type="number" min="1" max="60" step="1" value="5"> 分</label>
     <p class="hint">各スライドの言い終わりに話す言葉を入れてください。聞き取れたら次へ進みます。空欄なら、カンペの最後の4文字を自動で使います。複数入れるときは「、」で区切ります。音声認識は漢字の揺れがあるので、短く（3〜5文字）、そのスライドの中で一度しか言わない言葉がおすすめです。</p>
@@ -430,6 +442,7 @@ html[data-theme="oz"] .cfg-foot button:hover { background: rgba(60,50,120,.14); 
     capEl.classList.add('leaving');
     cur = n;
     setHash();
+    if (!syncQuiet) syncSend({ t: 'go', p: n });
     consumed = heardText().length;
     setTimeout(function () { capEl.classList.remove('leaving'); render(); }, 150);
   }
@@ -778,7 +791,11 @@ html[data-theme="oz"] .cfg-foot button:hover { background: rgba(60,50,120,.14); 
   }
   function readLevel() {
     accent *= 0.9;
-    if (!analyser) { level += (0 - level) * 0.05; pitchN *= 0.94; return; }
+    if (!analyser) {
+      // 2画面：発表者ウィンドウのマイクの声量・抑揚・アクセントを受け取って同じように動かす
+      if (remoteLv && performance.now() - remoteLv.at < 400) { level = remoteLv.lv; pitchN = remoteLv.pn; accent = Math.max(accent, remoteLv.ac); return; }
+      level += (0 - level) * 0.05; pitchN *= 0.94; return;
+    }
     analyser.getFloatTimeDomainData(buf);
     var sum = 0; for (var i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
     var rms = Math.sqrt(sum / buf.length);
@@ -797,6 +814,7 @@ html[data-theme="oz"] .cfg-foot button:hover { background: rgba(60,50,120,.14); 
       pitchN += (Math.max(-1, Math.min(1, (lp - pMean) / 0.45)) - pitchN) * 0.2;
     } else pitchN *= 0.96;
     $('meterFill').style.width = (level * 100) + '%';
+    syncSend({ t: 'lv', lv: level, pn: pitchN, ac: accent });
   }
   async function startMic() {
     try {
@@ -995,7 +1013,7 @@ html[data-theme="oz"] .cfg-foot button:hover { background: rgba(60,50,120,.14); 
     if (S[cur]) dimText = dimFor(S[cur]);
     if (labelEls.length && S[cur]) buildLabels(S[cur]);
     try { localStorage.setItem('ss_theme', name); } catch (_) {}
-    if (!quiet) toast('テーマ：' + (name === 'oz' ? 'OZ（明るい）' : 'ナイト（暗い）'));
+    if (!quiet) { toast('テーマ：' + (name === 'oz' ? 'OZ（明るい）' : 'ナイト（暗い）')); syncSend({ t: 'theme', name: name }); }
   }
   $('themeBtn').onclick = function () { applyTheme(themeName === 'night' ? 'oz' : 'night'); };
 
@@ -1023,11 +1041,54 @@ html[data-theme="oz"] .cfg-foot button:hover { background: rgba(60,50,120,.14); 
     $('vmViewer').setAttribute('aria-pressed', String(v));
     if (save) { try { localStorage.setItem('ss_view', v ? 'viewer' : 'presenter'); } catch (_) {} }
   }
-  $('vmPresenter').onclick = function () { applyView(false, true); };
-  $('vmViewer').onclick = function () { applyView(true, true); };
+  // ?view=presenter（発表者ツール）/ ?view=viewer（2画面の閲覧者側）。指定がなければ今まで通り1画面
+  var VIEW = null, PIP = false;
+  try { var qs = new URLSearchParams(location.search); VIEW = ({ presenter: 'presenter', viewer: 'viewer' })[qs.get('view')] || null; PIP = VIEW === 'viewer' && qs.get('pip') === '1'; } catch (_) {}
+  // URL で画面を決めたウィンドウでは、切り替えてもそのウィンドウだけ（保存しない）
+  $('vmPresenter').onclick = function () { applyView(false, !VIEW); };
+  $('vmViewer').onclick = function () { applyView(true, !VIEW); };
   var savedView = 'presenter';
   try { savedView = localStorage.getItem('ss_view') || 'presenter'; } catch (_) {}
-  applyView(savedView === 'viewer', false);
+  applyView(VIEW ? VIEW === 'viewer' : savedView === 'viewer', false);
+
+  // ---------- 2画面の同期（同じブラウザの別ウィンドウ間。BroadcastChannel） ----------
+  var chan = null, syncQuiet = false, remoteLv = null;
+  function syncSend(msg) {
+    if (!chan || PIP) return;
+    try { chan.postMessage(msg); } catch (_) {}
+  }
+  function fin(x) { return typeof x === 'number' && isFinite(x); }
+  function clamp(x, a, b) { return Math.max(a, Math.min(b, x)); }
+  function syncRemoteGo(p) {
+    if (!fin(p) || p !== Math.floor(p) || p < 0 || p >= S.length) return;
+    syncQuiet = true; try { go(p); } finally { syncQuiet = false; }
+  }
+  function syncState() { return { t: 'state', p: cur, theme: themeName }; }
+  if (VIEW && 'BroadcastChannel' in window) {
+    chan = new BroadcastChannel('ss_sync');
+    chan.onmessage = function (e) {
+      var m = e.data;
+      if (!m || typeof m !== 'object') return;
+      if (m.t === 'go') syncRemoteGo(m.p);
+      else if (m.t === 'state') { if (typeof m.theme === 'string' && THEMES[m.theme] && m.theme !== themeName) applyTheme(m.theme, true); syncRemoteGo(m.p); }
+      else if (m.t === 'theme') { if (typeof m.name === 'string' && THEMES[m.name] && m.name !== themeName) applyTheme(m.name, true); }
+      else if (m.t === 'hello') { if (VIEW === 'presenter') syncSend(syncState()); }
+      else if (m.t === 'lv') { if (!analyser && fin(m.lv) && fin(m.pn) && fin(m.ac)) remoteLv = { lv: clamp(m.lv, 0, 1), pn: clamp(m.pn, -1, 1), ac: clamp(m.ac, 0, 1), at: performance.now() }; }
+    };
+  }
+  var pipEl = null;
+  function viewerUrl(extra) { return location.pathname + '?view=viewer' + (extra || '') + '#' + (cur + 1); }
+  function openViewer() {
+    var w = window.open(viewerUrl(), 'ss_viewer', 'popup,width=1280,height=720');
+    if (!w) toast('ウィンドウを開けませんでした。ポップアップを許可してください。'); else { try { w.focus(); } catch (_) {} }
+  }
+  function togglePip() { if (pipEl) pipEl.classList.toggle('off'); }
+  $('viewerBtn').onclick = openViewer;
+  if (VIEW === 'presenter') {
+    document.body.classList.add('ptool');
+    if (!notesEl.classList.contains('on')) toggleNotes();
+    if (!chan) toast('このブラウザは2画面の同期に対応していません。Chromeで開いてください。');
+  }
 
   document.addEventListener('keydown', function (e) {
     var tg = e.target;
@@ -1057,6 +1118,7 @@ html[data-theme="oz"] .cfg-foot button:hover { background: rgba(60,50,120,.14); 
     else if (k === 't' || k === 'T') toggleTimer();
     else if (k === 'r' || k === 'R') { if (!T.run) resetTimer(); }
     else if (k === 'w' || k === 'W') openCfg();
+    else if ((k === 'p' || k === 'P') && VIEW === 'presenter') togglePip();
     else if (k === 'Home') go(0);
     else if (k === 'End') go(S.length - 1);
   });
@@ -1082,6 +1144,16 @@ html[data-theme="oz"] .cfg-foot button:hover { background: rgba(60,50,120,.14); 
   setTimeout(function () { setShape(S[cur]); }, 250);
   requestAnimationFrame(frame);
   wake();
+  if (VIEW === 'presenter') {
+    // 閲覧者画面の小さいプレビュー（同じページを閲覧者用で読み込んで縮小。同期は同じチャンネルで受け取る）
+    pipEl = document.createElement('div'); pipEl.className = 'pip'; pipEl.setAttribute('aria-hidden', 'true');
+    var pf = document.createElement('iframe'); pf.src = viewerUrl('&pip=1'); pf.tabIndex = -1; pf.title = '閲覧者画面のプレビュー';
+    var pl = document.createElement('span'); pl.className = 'pip-lab'; pl.textContent = '閲覧者画面';
+    pipEl.appendChild(pf); pipEl.appendChild(pl); document.body.appendChild(pipEl);
+    syncSend(syncState());
+  } else if (VIEW === 'viewer') {
+    try { chan && chan.postMessage({ t: 'hello' }); } catch (_) {}
+  }
 })();
 </script>
 </body>
