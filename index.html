@@ -182,6 +182,7 @@ html[data-theme="oz"] .lab.core.tri { text-shadow: none; filter: drop-shadow(0 0
 .react-ui.bump { border-color: var(--or); }
 .notes .next { color: var(--bl); font-size: 13px; margin-top: 6px; }
 .notes .heard { color: var(--dim); font-size: 13px; }
+.notes .heard.err { color: #ff6b6b; }
 
 /* trigger settings */
 .cfg { position: fixed; inset: 0; z-index: 9; display: none; background: rgba(5,7,13,.86); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
@@ -524,7 +525,9 @@ html[data-theme="oz"] .cfg-foot button:hover { background: rgba(60,50,120,.14); 
       return '<p' + (isSub ? ' class="sub"' : '') + '>' + h + '</p>';
     }).join('');
     if (auto && S[cur + 1]) html += '<p class="next">次へ：' + esc(keysFor(cur).join(' / ')) + '</p>';
+    if (auto) html += '<p class="heard" id="heard"></p>';
     notesBody.innerHTML = html;
+    drawHeard();
   }
 
   // ---------- particles ----------
@@ -892,7 +895,7 @@ html[data-theme="oz"] .cfg-foot button:hover { background: rgba(60,50,120,.14); 
     if (stream) stream.getTracks().forEach(function (tr) { tr.stop(); });
     analyser = null; stream = null; micOn = false; pMean = 0; envSlow = 0; document.body.classList.remove('mic-on');
     $('micBtn').setAttribute('aria-pressed', 'false');
-    if (auto) { auto = false; if (rec) { try { rec.stop(); } catch (_) {} } rec = null; interim = ''; }
+    if (auto) { auto = false; recId++; recErr = ''; recFails = 0; if (rec) { try { rec.stop(); } catch (_) {} } rec = null; interim = ''; }
     renderNotes();
   }
 
@@ -956,9 +959,22 @@ html[data-theme="oz"] .cfg-foot button:hover { background: rgba(60,50,120,.14); 
       if (seg.indexOf(ks[i]) !== -1) { lastAdvance = performance.now(); go(cur + 1); return; }
     }
   }
+  // 音声認識は無音やネットの都合で勝手に終わるので、終わるたびに新しく作り直して再開する。
+  // recId で今のものだけを生かす（古いものの終了やエラーで二重に動かないように）
+  var recId = 0, recFails = 0, recErr = '';
+  var REC_ERR = { 'network': 'ネットにつながりません', 'audio-capture': 'マイクの音が取れません' };
+  function drawHeard() {
+    var h = $('heard'); if (!h) return;
+    h.textContent = '聞き取り：' + (heardText().slice(-40) || '（まだ何も聞き取れていません）') +
+      (recErr ? '　※音声認識が止まっています（' + (REC_ERR[recErr] || recErr) + '）。再接続中…' : '');
+    h.classList.toggle('err', !!recErr);
+  }
   function startRec() {
-    rec = new SR(); rec.lang = 'ja-JP'; rec.continuous = true; rec.interimResults = true;
-    rec.onresult = function (e) {
+    var id = ++recId, r = new SR();
+    rec = r; r.lang = 'ja-JP'; r.continuous = true; r.interimResults = true;
+    r.onresult = function (e) {
+      if (id !== recId) return;
+      recFails = 0; recErr = '';
       interim = '';
       for (var i = e.resultIndex; i < e.results.length; i++) {
         if (e.results[i].isFinal) finals += e.results[i][0].transcript;
@@ -966,17 +982,31 @@ html[data-theme="oz"] .cfg-foot button:hover { background: rgba(60,50,120,.14); 
       }
       if (finals.length > 600) { var cut = finals.length - 400; finals = finals.slice(cut); consumed = Math.max(0, consumed - cut); }
       checkAdvance();
+      drawHeard();
     };
-    rec.onerror = function (e) {
-      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') { toast('音声認識が使えません。ダウンロード版をChromeで開いてください。'); stopMic(); }
+    r.onerror = function (e) {
+      if (id !== recId) return;
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') { toast('音声認識が使えません。ダウンロード版をChromeで開いてください。'); stopMic(); return; }
+      if (e.error === 'no-speech' || e.error === 'aborted') return; // 黙っていただけ。終わったら再開する
+      recErr = e.error; recFails++;
+      if (recFails === 1) toast('音声認識が止まりました（' + (REC_ERR[e.error] || e.error) + '）。自動で再接続します。←→ で手動でも進めます。');
+      drawHeard();
     };
-    rec.onend = function () { if (auto) { try { rec.start(); } catch (_) {} } };
-    try { rec.start(); } catch (_) {}
+    r.onend = function () {
+      if (id !== recId || !auto) return;
+      interim = '';
+      // 続けて失敗しているときは少し待つ（すぐ再開を繰り返して詰まらないように）
+      setTimeout(function () { if (auto && id === recId) startRec(); }, recFails ? Math.min(3000, 400 * recFails) : 60);
+    };
+    try { r.start(); } catch (_) {
+      recFails++;
+      setTimeout(function () { if (auto && id === recId) startRec(); }, Math.min(3000, 400 * recFails));
+    }
   }
   async function toggleMic() {
     if (micOn) { stopMic(); return; }
     // 2画面の閲覧者側（?view=viewer とそのプレビュー）ではマイクも音声認識も起動しない。声は発表者画面から受け取る
-    if (VIEW === 'viewer') { toast('閲覧者画面ではマイクを使いません。発表者画面でオンにしてください。'); return; }
+    if (VIEW === 'viewer') { toast(VIEWER_MIC_MSG, 8000); return; }
     if (!(await startMic())) return;
     if (SR) {
       auto = true; consumed = heardText().length; startRec();
@@ -1106,7 +1136,8 @@ html[data-theme="oz"] .cfg-foot button:hover { background: rgba(60,50,120,.14); 
 
   // ---------- ui ----------
   var toastT;
-  function toast(msg) { toastEl.textContent = msg; toastEl.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(function () { toastEl.classList.remove('on'); }, 3600); }
+  function toast(msg, ms) { toastEl.textContent = msg; toastEl.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(function () { toastEl.classList.remove('on'); }, ms || 3600); }
+  var VIEWER_MIC_MSG = 'ここは閲覧者画面なので、マイク・声でめくる・聞き取り表示は使えません。発表者画面（URL の最後に ?view=presenter）で開くか、S を5回押して「発表者用」に切り替えてください。';
   function toggleNotes() { var on = !notesEl.classList.contains('on'); notesEl.classList.toggle('on', on); $('notesBtn').setAttribute('aria-pressed', String(on)); }
   function toggleFs() { if (!document.fullscreenElement) { (document.documentElement.requestFullscreen || function () {}).call(document.documentElement); } else { document.exitFullscreen(); } }
 
@@ -1129,8 +1160,8 @@ html[data-theme="oz"] .cfg-foot button:hover { background: rgba(60,50,120,.14); 
   }
   // ?view=presenter（発表者ツール）/ ?view=viewer（閲覧者用。2画面の閲覧者側も同じ）
   // 公開URLを開いた人にカンペが見えないよう、?view= のない素のURLは保存した設定に関係なく常に閲覧者用
-  var VIEW = 'viewer', PIP = false;
-  try { var qs = new URLSearchParams(location.search); VIEW = ({ presenter: 'presenter', viewer: 'viewer' })[qs.get('view')] || 'viewer'; PIP = VIEW === 'viewer' && qs.get('pip') === '1'; } catch (_) {}
+  var VIEW = 'viewer', PIP = false, OPENED_PLAIN = false;
+  try { var qs = new URLSearchParams(location.search); OPENED_PLAIN = !qs.get('view'); VIEW = ({ presenter: 'presenter', viewer: 'viewer' })[qs.get('view')] || 'viewer'; PIP = VIEW === 'viewer' && qs.get('pip') === '1'; } catch (_) {}
   function setViewUrl() {
     try {
       var q = new URLSearchParams(location.search);
@@ -1227,6 +1258,7 @@ html[data-theme="oz"] .cfg-foot button:hover { background: rgba(60,50,120,.14); 
         return;
       }
       sTaps = [];
+      if (k === 'm' || k === 'M') { toast(VIEWER_MIC_MSG, 8000); return; } // 黙って無視すると、壊れたように見える
       if (/^[nNmMyYtTrRwW]$/.test(k) || k === 'ArrowUp' || k === 'ArrowDown') return;
     }
     if (k === 'ArrowRight' || k === ' ' || k === 'PageDown') { e.preventDefault(); go(cur + 1); }
@@ -1270,6 +1302,8 @@ html[data-theme="oz"] .cfg-foot button:hover { background: rgba(60,50,120,.14); 
     syncSend(syncState());
   } else if (VIEW === 'viewer') {
     try { chan && chan.postMessage({ t: 'hello' }); } catch (_) {}
+    // 手元で ?view= を付けずに開いた＝発表者が開いた可能性が高い。閲覧者画面だと気づけるように案内する（公開ページでは出さない）
+    if (OPENED_PLAIN && !PIP && /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname)) toast('閲覧者画面で開きました（スライドだけ）。発表するときは URL の最後に ?view=presenter を付けて開くか、S を5回押して「発表者用」に切り替えてください。', 9000);
   }
 })();
 </script>
