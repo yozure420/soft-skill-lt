@@ -122,6 +122,8 @@ html[data-theme="oz"] .lab.core.tri { text-shadow: none; filter: drop-shadow(0 0
   background: rgba(13,20,40,.92); border: 1px solid rgba(239,227,200,.16); opacity: 0; transition: opacity .3s; pointer-events: none; z-index: 6;
 }
 .toast.on { opacity: 1; }
+/* 閲覧者用画面：操作ボタン・カンペ・ファイル名とマイクの表示を出さない */
+.viewer .bar, .viewer .notes, .viewer .hud { display: none !important; }
 
 /* kanpe */
 .notes {
@@ -170,6 +172,10 @@ html[data-theme="oz"] .lab.core.tri { text-shadow: none; filter: drop-shadow(0 0
 .cfg-foot button:hover { background: rgba(239,227,200,.16); }
 .cfg-foot button:focus-visible { outline: 2px solid var(--bl); outline-offset: 1px; }
 .cfg-foot .grow { margin-left: auto; }
+.vmode { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 14px; margin: 0 0 4px; }
+.vmode button { font: inherit; font-size: 14px; color: var(--sand); background: rgba(239,227,200,.08); border: 1px solid rgba(239,227,200,.16); border-radius: 10px; padding: 7px 14px; cursor: pointer; min-height: 36px; }
+.vmode button[aria-pressed="true"] { border-color: var(--or); background: rgba(239,227,200,.18); }
+.vmode button:focus-visible { outline: 2px solid var(--bl); outline-offset: 1px; }
 /* ===== theme: OZ (Summer Wars) — colors only ===== */
 html[data-theme="oz"] {
   --night: #e5e2fa; --deep: #ffffff; --sand: #1c1a33; --dim: #6f6c8f;
@@ -231,6 +237,11 @@ html[data-theme="oz"] .cfg-foot button:hover { background: rgba(60,50,120,.14); 
 </nav>
 <section class="cfg" id="cfg" role="dialog" aria-label="次へ進む言葉の設定">
   <div class="cfg-box">
+    <div class="vmode" role="group" aria-label="画面">画面
+      <button id="vmPresenter" aria-pressed="true">発表者用</button>
+      <button id="vmViewer" aria-pressed="false">閲覧者用</button>
+    </div>
+    <p class="hint">閲覧者用はスライドだけを表示します（ボタン・カンペ・タイマーは出ません。←→ / スペースでめくれます）。閲覧者用でこの設定を開くには、S キーを2秒以内に5回押します。</p>
     <h2>次へ進む言葉</h2>
     <label class="tlim">持ち時間 <input id="tLimit" type="number" min="1" max="60" step="1" value="5"> 分</label>
     <p class="hint">各スライドの言い終わりに話す言葉を入れてください。聞き取れたら次へ進みます。空欄なら、カンペの最後の4文字を自動で使います。複数入れるときは「、」で区切ります。音声認識は漢字の揺れがあるので、短く（3〜5文字）、そのスライドの中で一度しか言わない言葉がおすすめです。</p>
@@ -1002,12 +1013,41 @@ html[data-theme="oz"] .cfg-foot button:hover { background: rgba(60,50,120,.14); 
   // マウスやタッチで押したボタンにフォーカスを残さない（次のスペースキーは「めくる」に使う）
   $('bar').addEventListener('click', function (e) { var b = e.target.closest && e.target.closest('button'); if (b && e.detail > 0) b.blur(); });
 
+  // ---------- 画面モード（発表者用 / 閲覧者用）：既定は発表者用 ----------
+  var viewer = false, sTaps = [];
+  function applyView(v, save) {
+    viewer = v;
+    document.body.classList.toggle('viewer', v);
+    if (v && notesEl.classList.contains('on')) toggleNotes();
+    $('vmPresenter').setAttribute('aria-pressed', String(!v));
+    $('vmViewer').setAttribute('aria-pressed', String(v));
+    if (save) { try { localStorage.setItem('ss_view', v ? 'viewer' : 'presenter'); } catch (_) {} }
+  }
+  $('vmPresenter').onclick = function () { applyView(false, true); };
+  $('vmViewer').onclick = function () { applyView(true, true); };
+  var savedView = 'presenter';
+  try { savedView = localStorage.getItem('ss_view') || 'presenter'; } catch (_) {}
+  applyView(savedView === 'viewer', false);
+
   document.addEventListener('keydown', function (e) {
     var tg = e.target;
     if (tg && tg.tagName === 'INPUT') { if (e.key === 'Escape') closeCfg(); return; }
     if (cfgEl.classList.contains('on')) { if (e.key === 'Escape' || e.key === 'w' || e.key === 'W') closeCfg(); return; }
     if (tg.closest && tg.closest('button') && (e.key === ' ' || e.key === 'Enter')) return;
     var k = e.key;
+    if (viewer) {
+      // 閲覧者用：S を2秒以内に5回で設定を開く。発表者向けのキーは効かない
+      if ((k === 's' || k === 'S') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        if (e.repeat) return;
+        var now = performance.now();
+        sTaps = sTaps.filter(function (t) { return now - t < 2000; });
+        sTaps.push(now);
+        if (sTaps.length >= 5) { sTaps = []; openCfg(); }
+        return;
+      }
+      sTaps = [];
+      if (/^[nNmMyYtTrRwW]$/.test(k)) return;
+    }
     if (k === 'ArrowRight' || k === ' ' || k === 'PageDown') { e.preventDefault(); go(cur + 1); }
     else if (k === 'ArrowLeft' || k === 'PageUp') { e.preventDefault(); go(cur - 1); }
     else if (k === 'n' || k === 'N') toggleNotes();
