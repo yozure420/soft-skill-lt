@@ -3,17 +3,19 @@
 LT「社会性って、なんだと思う？」の発表サイト。
 
 ## 起動
-`start.bat` をダブルクリック → Chrome で http://localhost:5173 が開く。
+`start.bat` をダブルクリック → Chrome で発表者画面 http://localhost:5173/?view=presenter が開く。
+
+`?view=` を付けない素の URL（公開ページ https://yozure420.github.io/soft-skill-lt/ も含む）は、いつも閲覧者画面（スライドだけ。カンペやボタンは出ない）で開き、URL に `?view=viewer` が付く。発表者画面は `?view=presenter` を付けて開く。閲覧者画面からは S を5回押すと設定が開き、発表者用に切り替えられる。
 （Node があれば `npx serve`、なければ Python の `http.server` で起動）
 
 マイクと音声認識は localhost でしか動かないので、index.html を直接開かずに start.bat から起動すること。
 
 ## 2画面で発表する（発表者ツール）
-1. `start.bat` で起動し、Chrome で http://localhost:5173/?view=presenter を開く（カンペと、右上に次のページの小さいプレビューが出る）
+1. `start.bat` で起動する（Chrome で http://localhost:5173/?view=presenter が開く。カンペと、右上に次のページの小さいプレビューが出る）
 2. 「閲覧者画面を開く」を押す → 開いたウィンドウをプロジェクター側へ移して F で全画面
 3. 発表者側でめくる・声でめくると、閲覧者画面も同じページに動く（閲覧者側でめくっても発表者側が追う）。声に合わせた球体の動き、テーマも伝わる
 - P：プレビューの表示/非表示（発表者ツールのみ）
-- 設定（W、閲覧者用では S を5回）で発表者用 / 閲覧者用を選ぶと、URL も `?view=presenter` / `?view=viewer` に変わる（リロードしないのでマイクは切れない）。`?view=` 付きの URL は保存した設定より優先
+- 設定（W、閲覧者用では S を5回）で発表者用 / 閲覧者用を選ぶと、URL も `?view=presenter` / `?view=viewer` に変わる（リロードしないのでマイクは切れない）
 - 同期は同じ PC の同じ Chrome の中だけ（BroadcastChannel）。別の端末の画面とは同期しない
 - 発表者ウィンドウを最小化すると、閲覧者側の球体が声に反応しなくなる（めくりは届く）
 

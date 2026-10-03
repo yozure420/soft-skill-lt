@@ -864,10 +864,10 @@ html[data-theme="oz"] .cfg-foot button:hover { background: rgba(60,50,120,.14); 
     var n = norm(tail);
     return n.slice(-4);
   }
-  var DEFAULTS = {"0": "と思う", "1": "社会性", "2": "まずひとつめが", "3": "そして", "4": "人間性", "5": "専門性", "6": "社会性", "7": "やすい", "8": "できません", "9": "いけない", "10": "浮いちゃう", "11": "きます", "12": "わからない", "13": "わけじゃない", "14": "ますよね", "15": "どうする", "16": "その話", "17": "なのか", "18": "とはない", "19": "んですよ", "20": "えたとき", "21": "みたら", "22": "たんです", "23": "決めました", "24": "気づいた", "25": "違う", "26": "終わらない", "27": "自分の中", "28": "くれてるか", "29": "判断し", "30": "があった", "31": "よわい", "32": "ところ", "33": "みがける", "34": "飛び込む", "35": "身につく", "36": "飛び込める", "37": "ついてきた", "38": "できそう", "39": "見えて", "40": "見つかる", "41": "見つかる", "42": "きませんか", "43": "わけじゃ", "44": "問いかけ", "45": "専門性"};
+  var DEFAULTS = {"0": "と思う", "1": "社会性", "2": "まずひとつめが", "3": "そして", "4": "人間性", "5": "専門性", "6": "社会性", "7": "やすい", "8": "できません", "9": "いけない", "10": "浮いちゃう", "11": "きます", "12": "わからない", "13": "わけじゃない", "14": "ますよね", "15": "どうする", "16": "その話", "17": "なのか", "18": "とはない", "19": "んですよ", "20": "えたとき", "21": "みたら", "22": "たんです", "23": "決めました", "24": "気づいた", "25": "違う", "26": "終わらない", "27": "自分の中", "28": "くれてるか", "29": "判断し", "30": "があった", "31": "よわい", "32": "ところ", "33": "みがける", "34": "飛び込む", "35": "身につく", "36": "飛び込める", "37": "ついてきた", "38": "できそう", "39": "見えて", "40": "見つかる", "41": "分かる", "42": "きませんか", "43": "わけじゃ", "44": "問いかけ", "45": "専門性"};
   // 保存するのは初期値から変えたページだけ。キーは「見出し＋カンペ」なので、文言や順番を変えてもずれない
   // 初期値を入れ替えたら保存先の番号を上げる（古い保存は読まず、新しい初期値を使う）
-  var TRIG_KEY = 'ss_triggers_v6';
+  var TRIG_KEY = 'ss_triggers_v7';
   function slideKey(sl) {
     var str = String(sl.h || sl.cap || sl.label || '') + '|' + String(sl.note || ''), h = 5381;
     for (var i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) | 0;
@@ -1039,38 +1039,40 @@ html[data-theme="oz"] .cfg-foot button:hover { background: rgba(60,50,120,.14); 
   // マウスやタッチで押したボタンにフォーカスを残さない（次のスペースキーは「めくる」に使う）
   $('bar').addEventListener('click', function (e) { var b = e.target.closest && e.target.closest('button'); if (b && e.detail > 0) b.blur(); });
 
-  // ---------- 画面モード（発表者用 / 閲覧者用）：既定は発表者用 ----------
+  // ---------- 画面モード（発表者用 / 閲覧者用）：URL の ?view= で決める。付いていなければ閲覧者用 ----------
   var viewer = false, sTaps = [];
-  function applyView(v, save) {
+  function applyView(v) {
     viewer = v;
     document.body.classList.toggle('viewer', v);
     if (v && notesEl.classList.contains('on')) toggleNotes();
     $('vmPresenter').setAttribute('aria-pressed', String(!v));
     $('vmViewer').setAttribute('aria-pressed', String(v));
-    if (save) { try { localStorage.setItem('ss_view', v ? 'viewer' : 'presenter'); } catch (_) {} }
   }
-  // ?view=presenter（発表者ツール）/ ?view=viewer（2画面の閲覧者側）。指定がなければ今まで通り1画面
-  var VIEW = null, PIP = false;
-  try { var qs = new URLSearchParams(location.search); VIEW = ({ presenter: 'presenter', viewer: 'viewer' })[qs.get('view')] || null; PIP = VIEW === 'viewer' && qs.get('pip') === '1'; } catch (_) {}
-  // 素のURLで開いたウィンドウだけ、選んだ画面を今まで通り保存する（?view= 付きで開いたウィンドウは保存しない）
-  var PLAIN = !VIEW;
-  // 設定で選んだ画面を URL（?view=）にも出す。リロードしないのでマイクと音声認識は切れない
-  function setMode(v) {
-    applyView(v, PLAIN);
-    VIEW = v ? 'viewer' : 'presenter';
+  // ?view=presenter（発表者ツール）/ ?view=viewer（閲覧者用。2画面の閲覧者側も同じ）
+  // 公開URLを開いた人にカンペが見えないよう、?view= のない素のURLは保存した設定に関係なく常に閲覧者用
+  var VIEW = 'viewer', PIP = false;
+  try { var qs = new URLSearchParams(location.search); VIEW = ({ presenter: 'presenter', viewer: 'viewer' })[qs.get('view')] || 'viewer'; PIP = VIEW === 'viewer' && qs.get('pip') === '1'; } catch (_) {}
+  function setViewUrl() {
     try {
-      var q = new URLSearchParams(location.search); q.set('view', VIEW);
+      var q = new URLSearchParams(location.search);
+      if (q.get('view') === VIEW) return;
+      q.set('view', VIEW);
       history.replaceState(null, '', location.pathname + '?' + q.toString() + location.hash);
     } catch (_) {}
+  }
+  // 設定で選んだ画面を URL（?view=）にも出す。リロードしないのでマイクと音声認識は切れない
+  function setMode(v) {
+    applyView(v);
+    VIEW = v ? 'viewer' : 'presenter';
+    setViewUrl();
     // URL を開き直したときと同じ状態にそろえる（同期に参加、発表者ツールなら次のページのプレビュー）
     ensureChan();
     if (!v) { document.body.classList.add('ptool'); createPip(); }
   }
   $('vmPresenter').onclick = function () { setMode(false); };
   $('vmViewer').onclick = function () { setMode(true); };
-  var savedView = 'presenter';
-  try { savedView = localStorage.getItem('ss_view') || 'presenter'; } catch (_) {}
-  applyView(VIEW ? VIEW === 'viewer' : savedView === 'viewer', false);
+  applyView(VIEW === 'viewer');
+  setViewUrl(); // 素のURLで開いたら ?view=viewer を付けて、今の画面が URL で分かるようにする
 
   // ---------- 2画面の同期（同じブラウザの別ウィンドウ間。BroadcastChannel） ----------
   var chan = null, syncQuiet = false, remoteLv = null;
