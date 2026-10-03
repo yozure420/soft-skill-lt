@@ -916,6 +916,8 @@ html[data-theme="oz"] .cfg-foot button:hover { background: rgba(60,50,120,.14); 
   }
   async function toggleMic() {
     if (micOn) { stopMic(); return; }
+    // 2画面の閲覧者側（?view=viewer とそのプレビュー）ではマイクも音声認識も起動しない。声は発表者画面から受け取る
+    if (VIEW === 'viewer') { toast('閲覧者画面ではマイクを使いません。発表者画面でオンにしてください。'); return; }
     if (!(await startMic())) return;
     if (SR) {
       auto = true; consumed = heardText().length; startRec();
