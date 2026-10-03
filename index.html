@@ -123,7 +123,7 @@ html[data-theme="oz"] .lab.core.tri { text-shadow: none; filter: drop-shadow(0 0
 }
 .toast.on { opacity: 1; }
 /* 閲覧者用画面：操作ボタン・カンペ・ファイル名とマイクの表示を出さない */
-.viewer .bar, .viewer .notes, .viewer .hud { display: none !important; }
+.viewer .bar, .viewer .notes, .viewer .hud, .viewer .pip { display: none !important; }
 /* 発表者ツール（?view=presenter）：次のページの小さいプレビュー */
 #viewerBtn { display: none; }
 .ptool #viewerBtn { display: inline-block; }
@@ -1052,9 +1052,22 @@ html[data-theme="oz"] .cfg-foot button:hover { background: rgba(60,50,120,.14); 
   // ?view=presenter（発表者ツール）/ ?view=viewer（2画面の閲覧者側）。指定がなければ今まで通り1画面
   var VIEW = null, PIP = false;
   try { var qs = new URLSearchParams(location.search); VIEW = ({ presenter: 'presenter', viewer: 'viewer' })[qs.get('view')] || null; PIP = VIEW === 'viewer' && qs.get('pip') === '1'; } catch (_) {}
-  // URL で画面を決めたウィンドウでは、切り替えてもそのウィンドウだけ（保存しない）
-  $('vmPresenter').onclick = function () { applyView(false, !VIEW); };
-  $('vmViewer').onclick = function () { applyView(true, !VIEW); };
+  // 素のURLで開いたウィンドウだけ、選んだ画面を今まで通り保存する（?view= 付きで開いたウィンドウは保存しない）
+  var PLAIN = !VIEW;
+  // 設定で選んだ画面を URL（?view=）にも出す。リロードしないのでマイクと音声認識は切れない
+  function setMode(v) {
+    applyView(v, PLAIN);
+    VIEW = v ? 'viewer' : 'presenter';
+    try {
+      var q = new URLSearchParams(location.search); q.set('view', VIEW);
+      history.replaceState(null, '', location.pathname + '?' + q.toString() + location.hash);
+    } catch (_) {}
+    // URL を開き直したときと同じ状態にそろえる（同期に参加、発表者ツールなら次のページのプレビュー）
+    ensureChan();
+    if (!v) { document.body.classList.add('ptool'); createPip(); }
+  }
+  $('vmPresenter').onclick = function () { setMode(false); };
+  $('vmViewer').onclick = function () { setMode(true); };
   var savedView = 'presenter';
   try { savedView = localStorage.getItem('ss_view') || 'presenter'; } catch (_) {}
   applyView(VIEW ? VIEW === 'viewer' : savedView === 'viewer', false);
@@ -1073,7 +1086,8 @@ html[data-theme="oz"] .cfg-foot button:hover { background: rgba(60,50,120,.14); 
     syncQuiet = true; try { go(p); } finally { syncQuiet = false; }
   }
   function syncState() { return { t: 'state', p: cur, theme: themeName }; }
-  if (VIEW && 'BroadcastChannel' in window) {
+  function ensureChan() {
+    if (chan || !('BroadcastChannel' in window)) return;
     chan = new BroadcastChannel('ss_sync');
     chan.onmessage = function (e) {
       var m = e.data;
@@ -1085,6 +1099,7 @@ html[data-theme="oz"] .cfg-foot button:hover { background: rgba(60,50,120,.14); 
       else if (m.t === 'lv') { if (!analyser && fin(m.lv) && fin(m.pn) && fin(m.ac)) remoteLv = { lv: clamp(m.lv, 0, 1), pn: clamp(m.pn, -1, 1), ac: clamp(m.ac, 0, 1), at: performance.now() }; }
     };
   }
+  if (VIEW) ensureChan();
   var pipEl = null;
   function viewerUrl(extra) { return location.pathname + '?view=viewer' + (extra || '') + '#' + (cur + 1); }
   function openViewer() {
@@ -1093,6 +1108,17 @@ html[data-theme="oz"] .cfg-foot button:hover { background: rgba(60,50,120,.14); 
   }
   function togglePip() { if (pipEl) pipEl.classList.toggle('off'); }
   function drawPip() { if (pipEl) pipEl.classList.toggle('end', cur >= S.length - 1); }
+  // 次のページの小さいプレビュー（同じページを閲覧者用で読み込んで縮小。同じチャンネルで受け取ったページの1つ先を出す）
+  function createPip() {
+    if (pipEl || PIP) return;
+    pipEl = document.createElement('div'); pipEl.className = 'pip'; pipEl.setAttribute('aria-hidden', 'true');
+    var pf = document.createElement('iframe'); pf.tabIndex = -1; pf.title = '次のページのプレビュー';
+    pf.src = location.pathname + '?view=viewer&pip=1#' + Math.min(cur + 2, S.length);
+    var pl = document.createElement('span'); pl.className = 'pip-lab'; pl.textContent = '次のページ';
+    var pe = document.createElement('div'); pe.className = 'pip-end'; pe.textContent = '最後のページです（次はありません）';
+    pipEl.appendChild(pf); pipEl.appendChild(pe); pipEl.appendChild(pl); document.body.appendChild(pipEl);
+    drawPip();
+  }
   $('viewerBtn').onclick = openViewer;
   if (VIEW === 'presenter') {
     document.body.classList.add('ptool');
@@ -1155,14 +1181,7 @@ html[data-theme="oz"] .cfg-foot button:hover { background: rgba(60,50,120,.14); 
   requestAnimationFrame(frame);
   wake();
   if (VIEW === 'presenter') {
-    // 次のページの小さいプレビュー（同じページを閲覧者用で読み込んで縮小。同じチャンネルで受け取ったページの1つ先を出す）
-    pipEl = document.createElement('div'); pipEl.className = 'pip'; pipEl.setAttribute('aria-hidden', 'true');
-    var pf = document.createElement('iframe'); pf.tabIndex = -1; pf.title = '次のページのプレビュー';
-    pf.src = location.pathname + '?view=viewer&pip=1#' + Math.min(cur + 2, S.length);
-    var pl = document.createElement('span'); pl.className = 'pip-lab'; pl.textContent = '次のページ';
-    var pe = document.createElement('div'); pe.className = 'pip-end'; pe.textContent = '最後のページです（次はありません）';
-    pipEl.appendChild(pf); pipEl.appendChild(pe); pipEl.appendChild(pl); document.body.appendChild(pipEl);
-    drawPip();
+    createPip();
     syncSend(syncState());
   } else if (VIEW === 'viewer') {
     try { chan && chan.postMessage({ t: 'hello' }); } catch (_) {}
