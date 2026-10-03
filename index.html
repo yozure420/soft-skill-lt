@@ -122,6 +122,9 @@ html[data-theme="oz"] .lab.core.tri { text-shadow: none; filter: drop-shadow(0 0
   background: rgba(13,20,40,.92); border: 1px solid rgba(239,227,200,.16); opacity: 0; transition: opacity .3s; pointer-events: none; z-index: 6;
 }
 .toast.on { opacity: 1; }
+/* 演出：「わかると、また飛び込める」の次に1.5秒だけ出す「違います」。アニメーションなし、文字だけ */
+.chigau { position: fixed; inset: 0; z-index: 8; display: none; align-items: center; justify-content: center; background: var(--night); color: var(--sand); font-size: clamp(40px, 7vw, 110px); font-weight: 700; }
+.chigau.on { display: flex; }
 /* 閲覧者用画面：操作ボタン・カンペ・ファイル名とマイクの表示を出さない */
 .viewer .bar, .viewer .notes, .viewer .hud, .viewer .pip { display: none !important; }
 /* 発表者ツール（?view=presenter）：次のページの小さいプレビュー */
@@ -289,6 +292,7 @@ html[data-theme="oz"] .cfg-foot button:hover { background: rgba(60,50,120,.14); 
     </div>
   </div>
 </section>
+<div class="chigau" id="chigau" aria-live="assertive">違います</div>
 <div class="toast" id="toast" role="status"></div>
 
 <script>
@@ -458,9 +462,34 @@ html[data-theme="oz"] .cfg-foot button:hover { background: rgba(60,50,120,.14); 
     drawPip();
   }
 
+  // ---------- 演出：「わかると、また飛び込める」から次へ進むとき、「違います」を1.5秒だけ出してから進む ----------
+  // スライドは増やさない（声でめくる言葉はページ番号で結び付いているので）。全画面の差し込み表示にする
+  var CHIGAU_FROM = -1, CHIGAU_MS = 1500, chigauOn = false, chigauBypass = false, chigauT = null;
+  S.forEach(function (s, i) { if (s.cap === 'わかると、また飛び込める') CHIGAU_FROM = i; });
+  function showChigau(on) { chigauOn = on; $('chigau').classList.toggle('on', on); }
+  // このウィンドウで次へ進めたとき（キー・声・スワイプ・ボタン）。他のウィンドウにも出してもらい、1.5秒後に進む
+  function startChigau() {
+    showChigau(true);
+    syncSend({ t: 'chigau' });
+    clearTimeout(chigauT);
+    chigauT = setTimeout(function () {
+      showChigau(false);
+      chigauBypass = true; try { go(CHIGAU_FROM + 1); } finally { chigauBypass = false; }
+    }, CHIGAU_MS);
+  }
+  // 他のウィンドウで始まったとき：出すだけ。次のページは向こうから届く（届かなくても少し後に消す）
+  function remoteChigau() {
+    if (PIP) return;
+    showChigau(true); clearTimeout(chigauT);
+    chigauT = setTimeout(function () { showChigau(false); }, CHIGAU_MS + 1000);
+  }
+
   function go(n) {
+    if (chigauOn && !chigauBypass) return; // 「違います」を出している間は進まない（キーや声で二重に進むのを防ぐ）
     n = Math.max(0, Math.min(S.length - 1, n));
     if (n === cur) return;
+    // 手で → / 声で、ちょうど次へ進むときだけ出す（← で戻るとき、ページ番号へ飛ぶとき、他のウィンドウから届いたときは出さない）
+    if (CHIGAU_FROM >= 0 && cur === CHIGAU_FROM && n === CHIGAU_FROM + 1 && !syncQuiet && !chigauBypass) { startChigau(); return; }
     if (cur === 0 && n > 0 && !T.run && T.el === 0) startTimer();
     Array.prototype.forEach.call(textEl.children, function (el) { el.classList.add('leaving'); });
     capEl.classList.add('leaving');
@@ -1135,6 +1164,7 @@ html[data-theme="oz"] .cfg-foot button:hover { background: rgba(60,50,120,.14); 
   function syncRemoteGo(p) {
     if (!fin(p) || p !== Math.floor(p) || p < 0 || p >= S.length) return;
     if (PIP) p = Math.min(p + 1, S.length - 1); // 発表者ツールのプレビューは「次のページ」を出す
+    if (chigauOn) { clearTimeout(chigauT); showChigau(false); } // 「違います」の後の次のページが届いたら消す
     syncQuiet = true; try { go(p); } finally { syncQuiet = false; }
   }
   function syncState() { return { t: 'state', p: cur, theme: themeName, react: REACT }; }
@@ -1147,6 +1177,7 @@ html[data-theme="oz"] .cfg-foot button:hover { background: rgba(60,50,120,.14); 
       if (m.t === 'go') syncRemoteGo(m.p);
       else if (m.t === 'state') { if (typeof m.theme === 'string' && THEMES[m.theme] && m.theme !== themeName) applyTheme(m.theme, true); setReact(m.react, false); syncRemoteGo(m.p); }
       else if (m.t === 'react') setReact(m.k, false);
+      else if (m.t === 'chigau') remoteChigau();
       else if (m.t === 'theme') { if (typeof m.name === 'string' && THEMES[m.name] && m.name !== themeName) applyTheme(m.name, true); }
       else if (m.t === 'hello') { if (VIEW === 'presenter') syncSend(syncState()); }
       else if (m.t === 'lv') { if (!analyser && fin(m.lv) && fin(m.pn) && fin(m.ac)) remoteLv = { lv: clamp(m.lv, 0, 1), pn: clamp(m.pn, -1, 1), ac: clamp(m.ac, 0, 1), at: performance.now() }; }
